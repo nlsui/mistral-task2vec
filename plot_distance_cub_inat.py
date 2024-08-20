@@ -45,7 +45,6 @@ args = parser.parse_args()
 # Assumes task IDs are mapped as follows:
 # CUB: 0-24 (0-9 are orders, 10-24 are Passeriformes families)
 # iNat2018: 25-231
-# As in cub_inat2018 in datasets.py
 CUB = 'CUB'
 INAT = 'iNat'
 CUB_NUM_TASKS = 25
