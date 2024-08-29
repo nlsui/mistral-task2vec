@@ -270,7 +270,7 @@ class Task2Vec:
                         epochs=10):
         """Fits the last layer of the network using the cached features."""
         logging.info("Fitting final classifier...")
-        if not hasattr(self.model.classifier, 'input_features'):
+        if not hasattr(self.model.cls.predictions.decoder, 'input_features'):
             raise ValueError("You need to run `cache_features` on model before running `fit_classifier`")
 
         # Access the targets and input features from the decoder layer
