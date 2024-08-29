@@ -334,31 +334,32 @@ class Task2Vec:
         return Embedding(hessian=np.concatenate(hess), scale=np.concatenate(scale), meta=None)
 
 
-def _get_loader(trainset, testset=None, batch_size=64, num_workers=6, num_samples=10000, drop_last=True):
-    if getattr(trainset, 'is_multi_label', False):
-        raise ValueError("Multi-label datasets not supported")
-    # TODO: Find a way to standardize this
-    if hasattr(trainset, 'labels'):
-        labels = trainset.labels
-    elif hasattr(trainset, 'targets'):
-        labels = trainset.targets
-    else:
-        labels = list(trainset.tensors[1].cpu().numpy())
-    num_classes = int(getattr(trainset, 'num_classes', max(labels) + 1))
-    class_count = np.eye(num_classes)[labels].sum(axis=0)
-    weights = 1. / class_count[labels] / num_classes
-    weights /= weights.sum()
+def _get_loader(trainset, testset=None, batch_size=1, num_workers=2, num_samples=None, drop_last=True):
+    # Since we are dealing with sequences, we don't need to calculate class counts or weights
+    sampler = None
 
-    sampler = torch.utils.data.sampler.WeightedRandomSampler(weights, num_samples=num_samples)
-    # No need for mutli-threaded loading if everything is already in memory,
-    # and would raise an error if TensorDataset is on CUDA
+    # Handle multi-threaded loading for larger datasets
     num_workers = num_workers if not isinstance(trainset, torch.utils.data.TensorDataset) else 0
-    trainloader = torch.utils.data.DataLoader(trainset, sampler=sampler, batch_size=batch_size,
-                                              num_workers=num_workers, drop_last=drop_last)
+
+    # Create the DataLoader for the training set
+    train_loader = torch.utils.data.DataLoader(
+        trainset,
+        sampler=sampler,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        drop_last=drop_last,
+        shuffle=True  # Shuffle sequences to randomize batches
+    )
 
     if testset is None:
-        return trainloader
+        return train_loader
     else:
-        testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, pin_memory=True, shuffle=False,
-                                                 num_workers=num_workers)
-        return trainloader, testloader
+        test_loader = torch.utils.data.DataLoader(
+            testset,
+            batch_size=batch_size,
+            pin_memory=True,
+            shuffle=False,
+            num_workers=num_workers
+        )
+        return train_loader, test_loader
+
