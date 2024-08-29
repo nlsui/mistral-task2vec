@@ -272,8 +272,10 @@ class Task2Vec:
         logging.info("Fitting final classifier...")
         if not hasattr(self.model.classifier, 'input_features'):
             raise ValueError("You need to run `cache_features` on model before running `fit_classifier`")
-        targets = self.model.classifier.targets.to(self.device)
-        features = self.model.classifier.input_features.to(self.device)
+
+        # Access the targets and input features from the decoder layer
+        targets = self.model.cls.predictions.decoder.targets.to(self.device)
+        features = self.model.cls.predictions.decoder.input_features.to(self.device)
 
         dataset = torch.utils.data.TensorDataset(features, targets)
         data_loader = _get_loader(dataset, **self.loader_opts)
