@@ -245,8 +245,10 @@ class Task2Vec:
                 layer.input_features = []
             layer.input_features.append(inputs[0].data.cpu().clone())
 
-        hooks = [self.model.layers[index].register_forward_pre_hook(_hook)
+        # Adjust the hook to use Mistral layers
+        hooks = [self.model.model.layers[index].register_forward_pre_hook(_hook)
                  for index in indexes]
+
         if max_samples is not None:
             n_batches = min(
                 math.floor(max_samples / data_loader.batch_size) - 1, len(data_loader))
@@ -260,30 +262,33 @@ class Task2Vec:
             print(i)
             targets.append(target.clone())
             self.model(input.to(device))
+
         for hook in hooks:
             hook.remove()
+
         for index in indexes:
-            self.model.layers[index].input_features = torch.cat(self.model.layers[index].input_features)
-        self.model.layers[-1].targets = torch.cat(targets)
+            self.model.model.layers[index].input_features = torch.cat(self.model.model.layers[index].input_features)
+
+        self.model.model.layers[-1].targets = torch.cat(targets)
 
     def _fit_classifier(self, optimizer='adam', learning_rate=0.0004, weight_decay=0.0001,
                         epochs=10):
         """Fits the last layer of the network using the cached features."""
         logging.info("Fitting final classifier...")
-        if not hasattr(self.model.classifier, 'input_features'):
+        if not hasattr(self.model.model.layers[-1], 'input_features'):
             raise ValueError("You need to run `cache_features` on model before running `fit_classifier`")
 
-        # Access the targets and input features from the decoder layer
-        targets = self.model.classifier.targets.to(self.device)
-        features = self.model.classifier.input_features.to(self.device)
+        # Access the targets and input features from the last layer and lm_head
+        targets = self.model.model.layers[-1].targets.to(self.device)
+        features = self.model.model.layers[-1].input_features.to(self.device)
 
         dataset = torch.utils.data.TensorDataset(features, targets)
         data_loader = _get_loader(dataset, **self.loader_opts)
 
         if optimizer == 'adam':
-            optimizer = torch.optim.Adam(self.model.fc.parameters(), lr=learning_rate, weight_decay=weight_decay)
+            optimizer = torch.optim.Adam(self.model.lm_head.parameters(), lr=learning_rate, weight_decay=weight_decay)
         elif optimizer == 'sgd':
-            optimizer = torch.optim.SGD(self.model.fc.parameters(), lr=learning_rate, weight_decay=weight_decay)
+            optimizer = torch.optim.SGD(self.model.lm_head.parameters(), lr=learning_rate, weight_decay=weight_decay)
         else:
             raise ValueError(f'Unsupported optimizer {optimizer}')
 
@@ -292,8 +297,8 @@ class Task2Vec:
             metrics = AverageMeter()
             for data, target in data_loader:
                 optimizer.zero_grad()
-                output = self.model.classifier(data)
-                loss = loss_fn(self.model.classifier(data), target)
+                output = self.model.lm_head(data)
+                loss = loss_fn(output, target)
                 error = get_error(output, target)
                 loss.backward()
                 optimizer.step()
