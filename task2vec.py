@@ -93,8 +93,8 @@ class Task2Vec:
         self._fit_classifier(**self.classifier_opts)
 
         if self.skip_layers > 0:
-            dataset = torch.utils.data.TensorDataset(self.model.bert.encoder.layer[self.skip_layers].input_features,
-                                                     self.model.bert.encoder.layer[-1].targets)
+            dataset = torch.utils.data.TensorDataset(self.model.layers[self.skip_layers].input_features,
+                                                     self.model.layers[-1].targets)
         self.compute_fisher(dataset)
         embedding = self.extract_embedding(self.model)
         return embedding
@@ -102,8 +102,8 @@ class Task2Vec:
     def montecarlo_fisher(self, dataset: Dataset, epochs: int = 1):
         logging.info("Using montecarlo Fisher")
         if self.skip_layers > 0:
-            dataset = torch.utils.data.TensorDataset(self.model.bert.encoder.layer[self.skip_layers].input_features,
-                                                     self.model.bert.encoder.layer[-1].targets)
+            dataset = torch.utils.data.TensorDataset(self.model.layers[self.skip_layers].input_features,
+                                                     self.model.layers[-1].targets)
         data_loader = _get_loader(dataset, **self.loader_opts)
         device = get_device(self.model)
         logging.info("Computing Fisher...")
@@ -170,7 +170,7 @@ class Task2Vec:
     def variational_fisher(self, dataset: Dataset, epochs=1, beta=1e-7):
         logging.info("Training variational fisher...")
         parameters = []
-        for layer in self.model.bert.encoder.layer[self.skip_layers:-1]:
+        for layer in self.model.layers[self.skip_layers:-1]:
             if isinstance(layer, nn.Module):  # Skip lambda functions
                 variational.make_variational(layer)
                 parameters += variational.get_variational_vars(layer)
@@ -191,8 +191,8 @@ class Task2Vec:
             {'params': self.model.classifier.parameters(), 'lr': 5e-4}],
             lr=1e-2, betas=(.9, 0.999))
         if self.skip_layers > 0:
-            dataset = torch.utils.data.TensorDataset(self.model.bert.encoder.layer[self.skip_layers].input_features,
-                                                     self.model.bert.encoder.layer[-1].targets)
+            dataset = torch.utils.data.TensorDataset(self.model.layers[self.skip_layers].input_features,
+                                                     self.model.layers[-1].targets)
         train_loader = _get_loader(dataset, **self.loader_opts)
 
         for epoch in range(epochs):
@@ -245,7 +245,7 @@ class Task2Vec:
                 layer.input_features = []
             layer.input_features.append(inputs[0].data.cpu().clone())
 
-        hooks = [self.model.bert.encoder.layer[index].register_forward_pre_hook(_hook)
+        hooks = [self.model.layers[index].register_forward_pre_hook(_hook)
                  for index in indexes]
         if max_samples is not None:
             n_batches = min(
@@ -263,19 +263,19 @@ class Task2Vec:
         for hook in hooks:
             hook.remove()
         for index in indexes:
-            self.model.bert.encoder.layer[index].input_features = torch.cat(self.model.bert.encoder.layer[index].input_features)
-        self.model.bert.encoder.layer[-1].targets = torch.cat(targets)
+            self.model.layers[index].input_features = torch.cat(self.model.layers[index].input_features)
+        self.model.layers[-1].targets = torch.cat(targets)
 
     def _fit_classifier(self, optimizer='adam', learning_rate=0.0004, weight_decay=0.0001,
                         epochs=10):
         """Fits the last layer of the network using the cached features."""
         logging.info("Fitting final classifier...")
-        if not hasattr(self.model.cls.predictions.decoder, 'input_features'):
+        if not hasattr(self.model.classifier, 'input_features'):
             raise ValueError("You need to run `cache_features` on model before running `fit_classifier`")
 
         # Access the targets and input features from the decoder layer
-        targets = self.model.cls.predictions.decoder.targets.to(self.device)
-        features = self.model.cls.predictions.decoder.input_features.to(self.device)
+        targets = self.model.classifier.targets.to(self.device)
+        features = self.model.classifier.input_features.to(self.device)
 
         dataset = torch.utils.data.TensorDataset(features, targets)
         data_loader = _get_loader(dataset, **self.loader_opts)
