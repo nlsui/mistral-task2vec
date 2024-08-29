@@ -232,6 +232,9 @@ class Task2Vec:
         logging.info("Caching features...")
         if loader_opts is None:
             loader_opts = {}
+
+        print("batch size")
+        print(loader_opts.get('batch_size', 64))
         data_loader = DataLoader(dataset, shuffle=False, batch_size=loader_opts.get('batch_size', 64),
                                  num_workers=loader_opts.get('num_workers', 6), drop_last=False)
 
@@ -254,8 +257,7 @@ class Task2Vec:
         for i, (input, target) in tqdm(enumerate(itertools.islice(data_loader, 0, n_batches)), total=n_batches,
                                        leave=False,
                                        desc="Caching features"):
-            print(input)
-            print(target)
+            print(i)
             targets.append(target.clone())
             self.model(input.to(device))
         for hook in hooks:
