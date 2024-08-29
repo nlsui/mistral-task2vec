@@ -88,7 +88,7 @@ class Task2Vec:
             self._cache_features(dataset, indexes=(self.skip_layers, -1), loader_opts=self.loader_opts,
                                  max_samples=self.max_samples)
         else:
-            self._cache_features(dataset, max_samples=self.max_samples)
+            self._cache_features(dataset, max_samples=self.max_samples, loader_opts=self.loader_opts)
         # Fits the last layer classifier using cached features
         self._fit_classifier(**self.classifier_opts)
 
