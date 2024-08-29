@@ -278,12 +278,12 @@ class Task2Vec:
         if not hasattr(self.model.model.layers[-1], 'input_features'):
             raise ValueError("You need to run `cache_features` on model before running `fit_classifier`")
 
-        # Access the targets and input features from the last layer and lm_head
+        # Access the cached sequence-level features and targets
         targets = self.model.model.layers[-1].targets.to(self.device)
         features = self.model.model.layers[-1].input_features.to(self.device)
 
         dataset = torch.utils.data.TensorDataset(features, targets)
-        data_loader = _get_loader(dataset, **self.loader_opts)
+        data_loader = torch.utils.data.DataLoader(dataset, batch_size=self.loader_opts.get('batch_size', 64), shuffle=True)
 
         if optimizer == 'adam':
             optimizer = torch.optim.Adam(self.model.lm_head.parameters(), lr=learning_rate, weight_decay=weight_decay)
@@ -292,12 +292,23 @@ class Task2Vec:
         else:
             raise ValueError(f'Unsupported optimizer {optimizer}')
 
-        loss_fn = nn.CrossEntropyLoss()
+        loss_fn = nn.CrossEntropyLoss(ignore_index=-100)  # Assuming -100 is used to ignore padding tokens
+
         for epoch in tqdm(range(epochs), desc="Fitting classifier", leave=False):
             metrics = AverageMeter()
             for data, target in data_loader:
                 optimizer.zero_grad()
+
+                # Pass the features through the lm_head to get logits
                 output = self.model.lm_head(data)
+
+                # Reshape output to [batch_size * sequence_length, num_classes]
+                output = output.view(-1, output.size(-1))
+
+                # Flatten target to [batch_size * sequence_length]
+                target = target.view(-1)
+
+                # Compute the loss
                 loss = loss_fn(output, target)
                 error = get_error(output, target)
                 loss.backward()
