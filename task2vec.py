@@ -115,7 +115,7 @@ class Task2Vec:
             logging.info(f"\tepoch {k + 1}/{epochs}")
             for i, (data, target) in enumerate(tqdm(data_loader, leave=False, desc="Computing Fisher")):
                 data = data.to(device)
-                output = self.model(data, start_from=self.skip_layers)
+                output = self.model(data)
                 # The gradients used to compute the FIM needs to be for y sampled from
                 # the model distribution y ~ p_w(y|x), not for y from the dataset
                 if self.bernoulli:
@@ -221,7 +221,7 @@ class Task2Vec:
         :param dataset: dataset with the task to compute the Fisher on
         """
         if self.method == 'variational':
-            fisher_fn = self.variational_fisher
+                fisher_fn = self.variational_fisher
         elif self.method == 'montecarlo':
             fisher_fn = self.montecarlo_fisher
         else:
@@ -259,7 +259,6 @@ class Task2Vec:
         for i, (input, target) in tqdm(enumerate(itertools.islice(data_loader, 0, n_batches)), total=n_batches,
                                        leave=False,
                                        desc="Caching features"):
-            print(i)
             targets.append(target.clone())
             self.model(input.to(device))
 
