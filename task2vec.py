@@ -116,13 +116,17 @@ class Task2Vec:
             for i, (data, target) in enumerate(tqdm(data_loader, leave=False, desc="Computing Fisher")):
                 data = data.to(device)
                 output = self.model(data)
-                # The gradients used to compute the FIM needs to be for y sampled from
-                # the model distribution y ~ p_w(y|x), not for y from the dataset
+
+                # Access the logits from the model output
+                logits = output.logits
+
+                # Apply softmax to the logits and sample from the distribution
                 if self.bernoulli:
-                    target = torch.bernoulli(F.sigmoid(output)).detach()
+                    target = torch.bernoulli(F.sigmoid(logits)).detach()
                 else:
-                    target = torch.multinomial(F.softmax(output, dim=-1), 1).detach().view(-1)
-                loss = self.loss_fn(output, target)
+                    target = torch.multinomial(F.softmax(logits, dim=-1), 1).detach().view(-1)
+
+                loss = self.loss_fn(logits, target)
                 self.model.zero_grad()
                 loss.backward()
                 for p in self.model.parameters():
