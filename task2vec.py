@@ -119,7 +119,7 @@ class Task2Vec:
 
                 # Access the logits from the model output
                 logits = output.logits
-
+                print(logits)
                 # Reshape logits to [batch_size * sequence_length, num_classes]
                 logits = logits.view(-1, logits.size(-1))
 
