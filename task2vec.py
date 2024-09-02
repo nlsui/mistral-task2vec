@@ -120,10 +120,14 @@ class Task2Vec:
                 # Access the logits from the model output
                 logits = output.logits
 
+                # Reshape logits to [batch_size * sequence_length, num_classes]
+                logits = logits.view(-1, logits.size(-1))
+
                 # Apply softmax to the logits and sample from the distribution
                 if self.bernoulli:
                     target = torch.bernoulli(F.sigmoid(logits)).detach()
                 else:
+                    # Sample a token from each distribution (across the num_classes dimension)
                     target = torch.multinomial(F.softmax(logits, dim=-1), 1).detach().view(-1)
 
                 loss = self.loss_fn(logits, target)
