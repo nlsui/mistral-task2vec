@@ -54,7 +54,7 @@ class MistralProbeNetwork(ABC, nn.Module):
                                   " should be interpreted as the classifier")
 
 
-class Task2Vec:
+class MistralTask2Vec:
 
     def __init__(self, model: MistralProbeNetwork, skip_layers=0, max_samples=None, classifier_opts=None,
                  method='montecarlo', method_opts=None, loader_opts=None, bernoulli=False):
