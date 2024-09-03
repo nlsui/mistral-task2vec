@@ -113,12 +113,10 @@ class MistralTask2Vec:
             logging.info(f"\tepoch {k + 1}/{epochs}")
             for i, (data, target) in enumerate(tqdm(data_loader, leave=False, desc="Computing Fisher")):
                 data = data.to(device)
-                print(data)
                 output = self.model(data)
 
                 # Access the logits from the model output
                 logits = output.logits
-                print(output)
                 # Reshape logits to [batch_size * sequence_length, num_classes]
                 logits = logits.view(-1, logits.size(-1))
 
@@ -287,7 +285,7 @@ class MistralTask2Vec:
         """
         hess, scale = [], []
         for name, module in model.named_modules():
-            if module is model.classifier:
+            if module is model.lm_head:
                 continue
             # The variational Fisher approximation estimates the variance of noise that can be added to the weights
             # without increasing the error more than a threshold. The inverse of this is proportional to an
