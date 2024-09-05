@@ -12,19 +12,18 @@
 # language governing permissions and limitations under the License.
 
 import itertools
+import logging
 import math
 from abc import ABC, abstractmethod
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from tqdm.auto import tqdm
-import logging
-import variational
 from torch.utils.data import DataLoader, Dataset
-from torch.optim.optimizer import Optimizer
-from utils import AverageMeter, get_error, get_device
+from tqdm.auto import tqdm
+
+from utils import get_device
 
 
 class MistralEmbedding:
@@ -41,30 +40,15 @@ class MistralProbeNetwork(ABC, nn.Module):
     module (e.g., the last fully connected layer).
     """
 
-    @property
-    @abstractmethod
-    def classifier(self):
-        raise NotImplementedError("Override the classifier property to return the submodules of the network that"
-                                  " should be interpreted as the classifier")
-
-    @classifier.setter
-    @abstractmethod
-    def classifier(self, val):
-        raise NotImplementedError("Override the classifier setter to set the submodules of the network that"
-                                  " should be interpreted as the classifier")
-
 
 class MistralTask2Vec:
 
-    def __init__(self, model: MistralProbeNetwork, skip_layers=0, max_samples=None, classifier_opts=None,
-                 method='montecarlo', method_opts=None, loader_opts=None, bernoulli=False):
-        if classifier_opts is None:
-            classifier_opts = {}
+    def __init__(self, model: MistralProbeNetwork, skip_layers=0, max_samples=None,
+                 method_opts=None, loader_opts=None, bernoulli=False):
         if method_opts is None:
             method_opts = {}
         if loader_opts is None:
             loader_opts = {}
-        assert method in ('variational', 'montecarlo')
         assert skip_layers >= 0
 
         self.model = model
@@ -73,8 +57,6 @@ class MistralTask2Vec:
         self.device = get_device(self.model)
         self.skip_layers = skip_layers
         self.max_samples = max_samples
-        self.classifier_opts = classifier_opts
-        self.method = method
         self.method_opts = method_opts
         self.loader_opts = loader_opts
         self.bernoulli = bernoulli
@@ -94,6 +76,7 @@ class MistralTask2Vec:
             dataset = torch.utils.data.TensorDataset(self.model.layers[self.skip_layers].input_features,
                                                      self.model.layers[-1].targets)
         self.compute_fisher(dataset)
+        clear_cached_features(self.model)
         embedding = self.extract_embedding(self.model)
         return embedding
 
@@ -141,75 +124,6 @@ class MistralTask2Vec:
                 p.grad2_acc /= p.grad_counter
         logging.info("done")
 
-    def _run_epoch(self, data_loader: DataLoader, model: MistralProbeNetwork, loss_fn,
-                   optimizer: Optimizer, epoch: int, train: bool = True,
-                   add_compression_loss: bool = False, skip_layers=0, beta=1.0e-7):
-        metrics = AverageMeter()
-        device = get_device(model)
-
-        for i, (input, target) in enumerate(tqdm(data_loader, leave=False, desc="Computing Fisher")):
-            input = input.to(device)
-            target = target.to(device)
-            output = model(input, start_from=skip_layers)
-
-            loss = loss_fn(output, target)
-            lz = beta * variational.get_compression_loss(model) if add_compression_loss else torch.zeros_like(loss)
-            loss += lz
-
-            error = get_error(output, target)
-
-            metrics.update(n=input.size(0), loss=loss.item(), lz=lz.item(), error=error)
-            if train:
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-        # logging.info(
-        print(
-            "{}: [{epoch}] ".format('Epoch' if train else '', epoch=epoch) +
-            "Data/Batch: {:.3f}/{:.3f} ".format(metrics.avg["data_time"], metrics.avg["batch_time"]) +
-            "Loss {:.3f} Lz: {:.3f} ".format(metrics.avg["loss"], metrics.avg["lz"]) +
-            "Error: {:.2f}".format(metrics.avg["error"])
-        )
-        return metrics.avg
-
-    def variational_fisher(self, dataset: Dataset, epochs=1, beta=1e-7):
-        logging.info("Training variational fisher...")
-        parameters = []
-        for layer in self.model.layers[self.skip_layers:-1]:
-            if isinstance(layer, nn.Module):  # Skip lambda functions
-                variational.make_variational(layer)
-                parameters += variational.get_variational_vars(layer)
-        bn_params = []
-        # Allows batchnorm parameters to change
-        for m in self.model.modules():
-            if isinstance(m, nn.BatchNorm2d):
-                bn_params += list(m.parameters())
-        # Avoids computing the gradients wrt to the weights to save time and memory
-        for p in self.model.parameters():
-            if p not in set(parameters) and p not in set(self.model.classifier.parameters()):
-                p.old_requires_grad = p.requires_grad
-                p.requires_grad = False
-
-        optimizer = torch.optim.Adam([
-            {'params': parameters},
-            {'params': bn_params, 'lr': 5e-4},
-            {'params': self.model.classifier.parameters(), 'lr': 5e-4}],
-            lr=1e-2, betas=(.9, 0.999))
-        if self.skip_layers > 0:
-            dataset = torch.utils.data.TensorDataset(self.model.layers[self.skip_layers].input_features,
-                                                     self.model.layers[-1].targets)
-        train_loader = _get_loader(dataset, **self.loader_opts)
-
-        for epoch in range(epochs):
-            self._run_epoch(train_loader, self.model, self.loss_fn, optimizer, epoch, beta=beta,
-                            add_compression_loss=True, train=True)
-
-        # Resets original value of requires_grad
-        for p in self.model.parameters():
-            if hasattr(p, 'old_requires_grad'):
-                p.requires_grad = p.old_requires_grad
-                del p.old_requires_grad
-
     def compute_fisher(self, dataset: Dataset):
         """
         Computes the Fisher Information of the weights of the model wrt the model output on the dataset and stores it.
@@ -225,12 +139,8 @@ class MistralTask2Vec:
 
         :param dataset: dataset with the task to compute the Fisher on
         """
-        if self.method == 'variational':
-                fisher_fn = self.variational_fisher
-        elif self.method == 'montecarlo':
-            fisher_fn = self.montecarlo_fisher
-        else:
-            raise ValueError(f"Invalid Fisher method {self.method}")
+
+        fisher_fn = self.montecarlo_fisher
         fisher_fn(dataset, **self.method_opts)
 
     def _cache_features(self, dataset: Dataset, indexes=(-1,), max_samples=None, loader_opts: dict = None):
@@ -302,6 +212,14 @@ class MistralTask2Vec:
                 hess.append(filterwise_hess)
                 scale.append(np.ones_like(filterwise_hess))
         return MistralEmbedding(hessian=np.concatenate(hess), scale=np.concatenate(scale), meta=None)
+
+
+def clear_cached_features(model):
+    for layer in model.model.layers:
+        if hasattr(layer, 'input_features'):
+            del layer.input_features
+        if hasattr(layer, 'targets'):
+            del layer.targets
 
 
 def _get_loader(trainset, testset=None, batch_size=1, num_workers=2, num_samples=None, drop_last=True):
