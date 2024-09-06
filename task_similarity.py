@@ -88,10 +88,19 @@ def get_hessians(*embeddings, normalized=False):
 def get_scaled_hessian(e0, e1):
     h0, h1 = get_hessians(e0, e1, normalized=False)
 
-    if h0 == 0 and h1 == 0:
-        return 0, 0
+    # Create a mask where h0 or h1 is zero
+    mask0 = (h0 != 0)
+    mask1 = (h1 != 0)
 
-    return h0 / (h0 + h1 + 1e-8), h1 / (h0 + h1 + 1e-8)
+    # Create arrays for scaled hessians, initialized to 0
+    scaled_h0 = np.zeros_like(h0)
+    scaled_h1 = np.zeros_like(h1)
+
+    # Only compute where mask is True (i.e., where h0 and h1 are both non-zero)
+    scaled_h0[mask0] = h0[mask0] / (h0[mask0] + h1[mask0] + 1e-8)
+    scaled_h1[mask1] = h1[mask1] / (h0[mask1] + h1[mask1] + 1e-8)
+
+    return scaled_h0, scaled_h1
 
 
 def get_full_kl(e0, e1):

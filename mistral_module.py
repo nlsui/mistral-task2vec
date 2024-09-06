@@ -148,8 +148,6 @@ class MistralTask2Vec:
         if loader_opts is None:
             loader_opts = {}
 
-        print("batch size")
-        print(loader_opts.get('batch_size', 64))
         data_loader = DataLoader(dataset, shuffle=False, batch_size=loader_opts.get('batch_size', 64),
                                  num_workers=loader_opts.get('num_workers', 6), drop_last=False)
 
