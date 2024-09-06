@@ -152,9 +152,11 @@ def jsd(e0, e1):
 
 
 @_register_distance
-def cosine(e0, e1):
+def cosine(e0, e1, clip_value=1e10):
     h1, h2 = get_scaled_hessian(e0, e1)
-    return distance.cosine(h1, h2)
+    h1_clipped = np.clip(h1, -clip_value, clip_value)
+    h2_clipped = np.clip(h2, -clip_value, clip_value)
+    return distance.cosine(h1_clipped, h2_clipped)
 
 
 @_register_distance
