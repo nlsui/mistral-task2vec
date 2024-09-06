@@ -88,14 +88,10 @@ def get_hessians(*embeddings, normalized=False):
 def get_scaled_hessian(e0, e1):
     h0, h1 = get_hessians(e0, e1, normalized=False)
 
-    # Avoid division by zero by checking where h0 + h1 is very small or zero
-    sum_h0_h1 = h0 + h1
-    safe_denominator = np.where(sum_h0_h1 == 0, 1e-8, sum_h0_h1)  # Replace zero denominator with a small value
+    if h0 == 0 and h1 == 0:
+        return 0, 0
 
-    scaled_h0 = h0 / safe_denominator
-    scaled_h1 = h1 / safe_denominator
-
-    return scaled_h0, scaled_h1
+    return h0 / (h0 + h1 + 1e-8), h1 / (h0 + h1 + 1e-8)
 
 
 def get_full_kl(e0, e1):
