@@ -14,7 +14,8 @@
 import itertools
 import logging
 import math
-from abc import ABC, abstractmethod
+from abc import ABC
+import random
 
 import numpy as np
 import torch
@@ -23,6 +24,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from tqdm.auto import tqdm
 from utils import AverageMeter, get_error, get_device
+
 
 
 class MistralEmbedding:
@@ -83,6 +85,16 @@ class MistralTask2Vec:
 
     def montecarlo_fisher(self, dataset: Dataset, epochs: int = 1):
         logging.info("Using montecarlo Fisher")
+
+        # Seed should be set before any stochastic operation
+        seed = 42  # Example seed
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        np.random.seed(seed)
+        random.seed(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
         if self.skip_layers > 0:
             dataset = torch.utils.data.TensorDataset(self.model.layers[self.skip_layers].input_features,
                                                      self.model.layers[-1].targets)
