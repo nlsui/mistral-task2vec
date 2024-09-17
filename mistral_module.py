@@ -71,7 +71,7 @@ class MistralTask2Vec:
         else:
             self._cache_features(dataset, max_samples=self.max_samples, loader_opts=self.loader_opts)
         # Fits the last layer classifier using cached features
-        self._fit_classifier(**{})
+        #self._fit_classifier(**{})
 
         if self.skip_layers > 0:
             dataset = torch.utils.data.TensorDataset(self.model.layers[self.skip_layers].input_features,
