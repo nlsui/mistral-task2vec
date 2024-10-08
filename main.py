@@ -15,7 +15,6 @@
 #!/usr/bin/env python3.6
 import pickle
 
-from task2vec import Task2Vec
 import yaml
 
 

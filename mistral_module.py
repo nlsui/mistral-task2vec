@@ -72,13 +72,11 @@ class MistralTask2Vec:
                                  max_samples=self.max_samples)
         else:
             self._cache_features(dataset, max_samples=self.max_samples, loader_opts=self.loader_opts)
-        # Fits the last layer classifier using cached features
-        #self._fit_classifier(**{})
 
         if self.skip_layers > 0:
             dataset = torch.utils.data.TensorDataset(self.model.layers[self.skip_layers].input_features,
                                                      self.model.layers[-1].targets)
-        self.compute_fisher(dataset)
+        self.montecarlo_fisher(dataset, **self.method_opts)
         clear_cached_features(self.model)
         embedding = self.extract_embedding(self.model)
         return embedding
@@ -137,25 +135,6 @@ class MistralTask2Vec:
                 p.grad2_acc /= p.grad_counter
         logging.info("done")
 
-    def compute_fisher(self, dataset: Dataset):
-        """
-        Computes the Fisher Information of the weights of the model wrt the model output on the dataset and stores it.
-
-        The Fisher Information Matrix is defined as:
-            F = E_{x ~ dataset} E_{y ~ p_w(y|x)} [\nabla_w log p_w(y|x) \nabla_w log p_w(y|x)^t]
-        where p_w(y|x) is the output probability vector of the network and w are the weights of the network.
-        Notice that the label y is sampled from the model output distribution and not from the dataset.
-
-        This code only approximate the diagonal of F. The result is stored in the model layers and can be extracted
-        using the `get_fisher` method. Different approximation methods of the Fisher information matrix are available,
-        and can be selected in the __init__.
-
-        :param dataset: dataset with the task to compute the Fisher on
-        """
-
-        fisher_fn = self.montecarlo_fisher
-        fisher_fn(dataset, **self.method_opts)
-
     def _cache_features(self, dataset: Dataset, indexes=(-1,), max_samples=None, loader_opts: dict = None):
         logging.info("Caching features...")
         if loader_opts is None:
@@ -195,51 +174,6 @@ class MistralTask2Vec:
             self.model.model.layers[index].input_features = torch.cat(self.model.model.layers[index].input_features)
 
         self.model.model.layers[-1].targets = torch.cat(targets)
-
-    def _fit_classifier(self, optimizer='adam', learning_rate=0.0004, weight_decay=0.0001,
-                        epochs=10):
-        """Fits the last layer of the network using the cached features."""
-        logging.info("Fitting final classifier...")
-        if not hasattr(self.model.model.layers[-1], 'input_features'):
-            raise ValueError("You need to run `cache_features` on model before running `fit_classifier`")
-
-        # Access the cached sequence-level features and targets
-        targets = self.model.model.layers[-1].targets.to(self.device)
-        features = self.model.model.layers[-1].input_features.to(self.device)
-
-        dataset = torch.utils.data.TensorDataset(features, targets)
-        data_loader = torch.utils.data.DataLoader(dataset, batch_size=self.loader_opts.get('batch_size', 64), shuffle=True)
-
-        if optimizer == 'adam':
-            optimizer = torch.optim.Adam(self.model.lm_head.parameters(), lr=learning_rate, weight_decay=weight_decay)
-        elif optimizer == 'sgd':
-            optimizer = torch.optim.SGD(self.model.lm_head.parameters(), lr=learning_rate, weight_decay=weight_decay)
-        else:
-            raise ValueError(f'Unsupported optimizer {optimizer}')
-
-        loss_fn = nn.CrossEntropyLoss(ignore_index=-100)  # Assuming -100 is used to ignore padding tokens
-
-        for epoch in tqdm(range(epochs), desc="Fitting classifier", leave=False):
-            metrics = AverageMeter()
-            for data, target in data_loader:
-                optimizer.zero_grad()
-
-                # Pass the features through the lm_head to get logits
-                output = self.model.lm_head(data)
-
-                # Reshape output to [batch_size * sequence_length, num_classes]
-                output = output.view(-1, output.size(-1))
-
-                # Flatten target to [batch_size * sequence_length]
-                target = target.view(-1)
-
-                # Compute the loss
-                loss = loss_fn(output, target)
-                error = get_error(output, target)
-                loss.backward()
-                optimizer.step()
-                metrics.update(n=data.size(0), loss=loss.item(), error=error)
-            logging.info(f"[epoch {epoch}]: " + "\t".join(f"{k}: {v}" for k, v in metrics.avg.items()))
 
     def extract_embedding(self, model: MistralProbeNetwork):
         """
