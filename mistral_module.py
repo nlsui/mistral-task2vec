@@ -45,7 +45,7 @@ class MistralProbeNetwork(ABC, nn.Module):
 class MistralTask2Vec:
 
     def __init__(self, model: MistralProbeNetwork, skip_layers=0, max_samples=None,
-                 method_opts=None, loader_opts=None, bernoulli=False):
+                 method_opts=None, loader_opts=None, bernoulli=False, seed=0):
         if method_opts is None:
             method_opts = {}
         if loader_opts is None:
@@ -61,6 +61,7 @@ class MistralTask2Vec:
         self.method_opts = method_opts
         self.loader_opts = loader_opts
         self.bernoulli = bernoulli
+        self.seed = seed
         self.loss_fn = nn.CrossEntropyLoss() if not self.bernoulli else nn.BCEWithLogitsLoss()
         self.loss_fn = self.loss_fn.to(self.device)
 
@@ -85,11 +86,10 @@ class MistralTask2Vec:
         logging.info("Using montecarlo Fisher")
 
         # Seed should be set before any stochastic operation
-        seed = 42  # Example seed
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed(seed)
-        np.random.seed(seed)
-        random.seed(seed)
+        torch.manual_seed(self.seed)
+        torch.cuda.manual_seed(self.seed)
+        np.random.seed(self.seed)
+        random.seed(self.seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
