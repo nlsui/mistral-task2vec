@@ -10,6 +10,7 @@ def parse_requirements(filename):
 setup(
     name='mistral-task2vec',
     version='0.1',
+    py_modules=['mistral_module'],
     packages=find_packages(),
     install_requires=parse_requirements('requirements.txt'),
 )
