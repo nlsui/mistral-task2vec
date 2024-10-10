@@ -8,7 +8,7 @@ torchvision
 numpy~=1.26.4
 pandas
 hydra-core
-sklearn
+scikit-learn
 tqdm~=4.66.4
 
 transformers~=4.45.2
