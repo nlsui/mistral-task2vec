@@ -1,16 +1,23 @@
-from setuptools import setup, find_packages
-
-
-# Helper function to read the requirements.txt file
-def parse_requirements(filename):
-    with open(filename, 'r') as f:
-        return [line.strip() for line in f if line and not line.startswith("#")]
-
+from setuptools import setup
 
 setup(
     name='mistral-task2vec',
     version='0.1',
-    py_modules=['mistral_module'],
-    packages=find_packages(),
-    install_requires=parse_requirements('requirements.txt'),
+    py_modules=['mistral_module'],  # Include 'mistral_module.py' explicitly
+    install_requires=[
+        'seaborn',
+        'scipy~=1.14.0',
+        'matplotlib',
+        'omegaconf',
+        'fastcluster',
+        'torch~=2.4.0',
+        'torchvision',
+        'numpy~=1.26.4',
+        'pandas',
+        'hydra-core',
+        'scikit-learn',
+        'tqdm~=4.66.4',
+        'transformers~=4.45.2',
+        'datasets~=3.0.1',
+    ],
 )
