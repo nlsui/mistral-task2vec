@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
     name='mistral-task2vec',
     version='0.1',
-    py_modules=['mistral_module'],  # Include 'mistral_module.py' explicitly
+    py_modules=['mistral_module', 'task_similarity', 'utils'],  # Include 'mistral_module.py' explicitly
     install_requires=[
         'seaborn',
         'scipy~=1.14.0',
