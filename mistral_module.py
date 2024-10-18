@@ -85,8 +85,7 @@ class MistralTask2Vec:
         if loader_opts is None:
             loader_opts = {}
 
-        data_loader = DataLoader(dataset, shuffle=False, batch_size=loader_opts.get('batch_size', 64),
-                                 num_workers=loader_opts.get('num_workers', 6), drop_last=False)
+        data_loader = _get_loader(dataset, **self.loader_opts)
 
         if max_samples is not None:
             n_batches = min(math.floor(max_samples / data_loader.batch_size) - 1, len(data_loader))
