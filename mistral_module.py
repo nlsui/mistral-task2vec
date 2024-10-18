@@ -105,8 +105,8 @@ class MistralTask2Vec:
         for k in range(epochs):
             logging.info(f"\tEpoch {k + 1}/{epochs}")
 
-            for i, (data, target) in enumerate(tqdm(itertools.islice(data_loader, 0, n_batches), total=n_batches,
-                                                    leave=False, desc="Computing Fisher")):
+            for i, (data, target) in tqdm(enumerate(itertools.islice(data_loader, 0, n_batches)), total=n_batches,
+                                          leave=False, desc="Computing Fisher"):
                 data = data.to(device)
 
                 # Forward pass through the model
