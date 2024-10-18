@@ -14,8 +14,8 @@
 import itertools
 import logging
 import math
-from abc import ABC
 import random
+from abc import ABC
 
 import numpy as np
 import torch
@@ -23,8 +23,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from tqdm.auto import tqdm
-from utils import AverageMeter, get_error, get_device
 
+from utils import get_device
 
 
 class MistralEmbedding:
@@ -66,26 +66,14 @@ class MistralTask2Vec:
         self.loss_fn = self.loss_fn.to(self.device)
 
     def embed(self, dataset: Dataset):
-        # Cache the last layer features (needed to train the classifier) and (if needed) the intermediate layer features
-        # so that we can skip the initial layers when computing the embedding
-        if self.skip_layers > 0:
-            self._cache_features(dataset, indexes=(self.skip_layers, -1), loader_opts=self.loader_opts,
-                                 max_samples=self.max_samples)
-        else:
-            self._cache_features(dataset, max_samples=self.max_samples, loader_opts=self.loader_opts)
-
-        if self.skip_layers > 0:
-            dataset = torch.utils.data.TensorDataset(self.model.layers[self.skip_layers].input_features,
-                                                     self.model.layers[-1].targets)
-        self.montecarlo_fisher(dataset, **self.method_opts)
-        clear_cached_features(self.model)
+        self.compute_montecarlo_fisher(dataset, **self.method_opts)
         embedding = self.extract_embedding(self.model)
         return embedding
 
-    def montecarlo_fisher(self, dataset: Dataset, epochs: int = 1):
-        logging.info("Using montecarlo Fisher")
+    def compute_montecarlo_fisher(self, dataset: Dataset, epochs: int = 1, max_samples=None, loader_opts: dict = None):
+        logging.info("Using Monte Carlo Fisher Information Calculation")
 
-        # Seed should be set before any stochastic operation
+        # Seed setting for deterministic results
         torch.manual_seed(self.seed)
         torch.cuda.manual_seed(self.seed)
         np.random.seed(self.seed)
@@ -93,87 +81,69 @@ class MistralTask2Vec:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-        if self.skip_layers > 0:
-            dataset = torch.utils.data.TensorDataset(self.model.layers[self.skip_layers].input_features,
-                                                     self.model.layers[-1].targets)
-        data_loader = _get_loader(dataset, **self.loader_opts)
-        device = get_device(self.model)
-        logging.info("Computing Fisher...")
-
-        for p in self.model.parameters():
-            p.grad2_acc = torch.zeros_like(p.data)
-            p.grad_counter = 0
-        for k in range(epochs):
-            logging.info(f"\tepoch {k + 1}/{epochs}")
-            for i, (data, target) in enumerate(tqdm(data_loader, leave=False, desc="Computing Fisher")):
-                data = data.to(device)
-                output = self.model(data)
-
-                # Access the logits from the model output
-                logits = output.logits
-                # Reshape logits to [batch_size * sequence_length, num_classes]
-                logits = logits.view(-1, logits.size(-1))
-
-                # Apply softmax to the logits and sample from the distribution
-                if self.bernoulli:
-                    target = torch.bernoulli(F.sigmoid(logits)).detach()
-                else:
-                    # Sample a token from each distribution (across the num_classes dimension)
-                    target = torch.multinomial(F.softmax(logits, dim=-1), 1).detach().view(-1)
-
-                loss = self.loss_fn(logits, target)
-                self.model.zero_grad()
-                loss.backward()
-                for p in self.model.parameters():
-                    if p.grad is not None:
-                        p.grad2_acc += p.grad.data ** 2
-                        p.grad_counter += 1
-        for p in self.model.parameters():
-            if p.grad_counter == 0:
-                del p.grad2_acc
-            else:
-                p.grad2_acc /= p.grad_counter
-        logging.info("done")
-
-    def _cache_features(self, dataset: Dataset, indexes=(-1,), max_samples=None, loader_opts: dict = None):
-        logging.info("Caching features...")
+        # Prepare data loader
         if loader_opts is None:
             loader_opts = {}
 
         data_loader = DataLoader(dataset, shuffle=False, batch_size=loader_opts.get('batch_size', 64),
                                  num_workers=loader_opts.get('num_workers', 6), drop_last=False)
 
-        device = next(self.model.parameters()).device
-
-        def _hook(layer, inputs):
-            if not hasattr(layer, 'input_features'):
-                layer.input_features = []
-            layer.input_features.append(inputs[0].data.cpu().clone())
-
-        # Adjust the hook to use Mistral layers
-        hooks = [self.model.model.layers[index].register_forward_pre_hook(_hook)
-                 for index in indexes]
-
         if max_samples is not None:
-            n_batches = min(
-                math.floor(max_samples / data_loader.batch_size) - 1, len(data_loader))
+            n_batches = min(math.floor(max_samples / data_loader.batch_size) - 1, len(data_loader))
         else:
             n_batches = len(data_loader)
-        targets = []
 
-        for i, (input, target) in tqdm(enumerate(itertools.islice(data_loader, 0, n_batches)), total=n_batches,
-                                       leave=False,
-                                       desc="Caching features"):
-            targets.append(target.clone())
-            self.model(input.to(device))
+        device = get_device(self.model)
 
-        for hook in hooks:
-            hook.remove()
+        # Initialize gradient accumulators for Fisher Information calculation
+        for p in self.model.parameters():
+            p.grad2_acc = torch.zeros_like(p.data)
+            p.grad_counter = 0
 
-        for index in indexes:
-            self.model.model.layers[index].input_features = torch.cat(self.model.model.layers[index].input_features)
+        logging.info("Computing Fisher Information...")
 
-        self.model.model.layers[-1].targets = torch.cat(targets)
+        for k in range(epochs):
+            logging.info(f"\tEpoch {k + 1}/{epochs}")
+
+            for i, (data, target) in enumerate(tqdm(itertools.islice(data_loader, 0, n_batches), total=n_batches,
+                                                    leave=False, desc="Computing Fisher")):
+                data = data.to(device)
+
+                # Forward pass through the model
+                output = self.model(data)
+
+                # Access the logits from the model output
+                logits = output.logits
+
+                # Reshape logits to [batch_size * sequence_length, num_classes]
+                logits = logits.view(-1, logits.size(-1))
+
+                # Sample the target based on logits
+                if self.bernoulli:
+                    target = torch.bernoulli(F.sigmoid(logits)).detach()
+                else:
+                    # Sample a token from each distribution (across the num_classes dimension)
+                    target = torch.multinomial(F.softmax(logits, dim=-1), 1).detach().view(-1)
+
+                # Calculate loss and backpropagate
+                loss = self.loss_fn(logits, target)
+                self.model.zero_grad()
+                loss.backward()
+
+                # Accumulate Fisher Information gradient (squared gradients)
+                for p in self.model.parameters():
+                    if p.grad is not None:
+                        p.grad2_acc += p.grad.data ** 2
+                        p.grad_counter += 1
+
+        # Normalize gradients
+        for p in self.model.parameters():
+            if p.grad_counter == 0:
+                del p.grad2_acc
+            else:
+                p.grad2_acc /= p.grad_counter
+
+        logging.info("Fisher Information calculation done")
 
     def extract_embedding(self, model: MistralProbeNetwork):
         """
@@ -204,14 +174,6 @@ class MistralTask2Vec:
         return MistralEmbedding(hessian=np.concatenate(hess), scale=np.concatenate(scale), meta=None)
 
 
-def clear_cached_features(model):
-    for layer in model.model.layers:
-        if hasattr(layer, 'input_features'):
-            del layer.input_features
-        if hasattr(layer, 'targets'):
-            del layer.targets
-
-
 def _get_loader(trainset, testset=None, batch_size=1, num_workers=2, num_samples=None, drop_last=True):
     # Since we are dealing with sequences, we don't need to calculate class counts or weights
     sampler = None
@@ -240,4 +202,3 @@ def _get_loader(trainset, testset=None, batch_size=1, num_workers=2, num_samples
             num_workers=num_workers
         )
         return train_loader, test_loader
-
